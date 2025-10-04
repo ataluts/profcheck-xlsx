@@ -20,6 +20,13 @@ style_it872_value_numformat = '0.00'
 style_it872_value_alignment = Alignment(horizontal="center", vertical="center")
 style_it872_value_font = Font(bold=True, color="FFFFFF")
 style_it872_value_fill = PatternFill(start_color="C0C0C0", end_color="C0C0C0", fill_type="solid")
+style_stat_header_font = Font(bold=True)
+style_stat_header_fill = PatternFill()
+style_stat_header_alignment = Alignment(horizontal="right", vertical="center")
+style_stat_value_font = Font()
+style_stat_value_fill = PatternFill()
+style_stat_value_alignment = Alignment(horizontal="right", vertical="center")
+style_stat_value_numformat = '0.000'
 style_grade_cell_size = style_it872_cell_size
 style_grade_header_font = Font(bold=True)
 style_grade_header_fill = PatternFill(start_color="C0C0C0", end_color="C0C0C0", fill_type="solid")
@@ -29,16 +36,7 @@ style_grade_value_alignment = Alignment(horizontal="center", vertical="center")
 style_grade_value_fill = PatternFill(start_color="C0C0C0", end_color="C0C0C0", fill_type="solid")
 
 #dE gradations: (threshold, color above it)
-dE_gradations = ((0.0, "00C000"), (1.0, "00FF00"), (3.0, "FFFF00"), (6.0, "FF0000"))
-
-#Regex to parse report lines
-line_re = re.compile(
-    r"\[(?P<dE>[0-9.]+)\]\s+"
-    r"(?P<patch_id>([A-Z]+)(\d+)):\s+"
-    r"(?P<error>[0-9.eE+-]+\s+[0-9.eE+-]+\s+[0-9.eE+-]+)\s+->\s+"
-    r"(?P<color_act>[0-9.eE+-]+\s+[0-9.eE+-]+\s+[0-9.eE+-]+)\s+should be\s+"
-    r"(?P<color_ref>[0-9.eE+-]+\s+[0-9.eE+-]+\s+[0-9.eE+-]+)"
-)
+dE_gradations = ((0.0, "0080FF"), (1.0, "00C000"), (2.0, "00FF00"), (3.0, "FFFF00"), (4.0, "FF8000"), (5.0, "FF0000"), (6.0, "FF00FF"))
 
 #Class with all data about the patch
 class Patch():
@@ -107,11 +105,25 @@ def pcs_to_rgb(pcs_values):
 
 #Reads profcheck report into patch array
 def read_report(address):
+    #Regex to parse report lines
+    re_patch_line = re.compile(
+        r"\[(?P<dE>[0-9.]+)\]\s+"
+        r"(?P<patch_id>([A-Z]+)(\d+)):\s+"
+        r"(?P<error>[0-9.eE+-]+\s+[0-9.eE+-]+\s+[0-9.eE+-]+)\s+->\s+"
+        r"(?P<color_act>[0-9.eE+-]+\s+[0-9.eE+-]+\s+[0-9.eE+-]+)\s+should be\s+"
+        r"(?P<color_ref>[0-9.eE+-]+\s+[0-9.eE+-]+\s+[0-9.eE+-]+)"
+    )
     data = []
     with open(address, "r") as f:
         for line in f:
-            m = line_re.match(line)
+            m = re_patch_line.match(line)
             if not m:
+                match = re.search(r"max\.\s*=\s*([0-9.]+),\s*avg\.\s*=\s*([0-9.]+),\s*RMS\s*=\s*([0-9.]+)", line)
+                if match:
+                    stat_dE_max = float(match.group(1))
+                    stat_dE_avg = float(match.group(2))
+                    stat_de_rms = float(match.group(3))
+                    stat = (stat_dE_max, stat_dE_avg, stat_de_rms)
                 continue
             dE = float(m.group("dE"))
             patch_id = m.group("patch_id")
@@ -119,7 +131,7 @@ def read_report(address):
             color_act = parse_triplet(m.group("color_act"))
             color_ref = parse_triplet(m.group("color_ref"))
             data.append(Patch(patch_id, dE, error, color_act, color_ref))
-    if len(data) > 0: return data
+    if len(data) > 0: return data, stat
     else: return None
 
 def main():
@@ -134,7 +146,7 @@ def main():
         args.output = args.input.with_suffix('.xlsx')
 
     #read profcheck report
-    data = read_report(args.input)
+    data, stat = read_report(args.input)
 
     #create xlsx
     workbook = openpyxl.Workbook()
@@ -149,7 +161,7 @@ def main():
     it872_header_row_letter(worksheet, 1)
     it872_header_row_letter(worksheet, 24)
 
-    #write data into table
+    #write patch data into table
     for patch in data:
         cell_row, cell_col = patch_to_cell(patch.id)
         cell = worksheet.cell(row=cell_row, column=cell_col)
@@ -173,6 +185,40 @@ def main():
                     font_color = grade[1]
                     break
             cell.font = Font(**{**style_it872_value_font.__dict__, "color": font_color})            
+
+    #write stats
+    cell_row = 17
+    cell_col = 1
+    # max
+    cell = worksheet.cell(row=cell_row, column=cell_col, value="max:")
+    cell.font = style_stat_header_font
+    cell.fill = style_stat_header_fill
+    cell.alignment = style_stat_header_alignment
+    cell = worksheet.cell(row=cell_row, column=cell_col+1, value=stat[0])
+    cell.number_format = style_stat_value_numformat
+    cell.font = style_stat_value_font
+    cell.fill = style_stat_value_fill
+    cell.alignment = style_stat_value_alignment
+    # avg
+    cell = worksheet.cell(row=cell_row+1, column=cell_col, value="avg:")
+    cell.font = style_stat_header_font
+    cell.fill = style_stat_header_fill
+    cell.alignment = style_stat_header_alignment
+    cell = worksheet.cell(row=cell_row+1, column=cell_col+1, value=stat[1])
+    cell.number_format = style_stat_value_numformat
+    cell.font = style_stat_value_font
+    cell.fill = style_stat_value_fill
+    cell.alignment = style_stat_value_alignment
+    # rms
+    cell = worksheet.cell(row=cell_row+2, column=cell_col, value="rms:")
+    cell.font = style_stat_header_font
+    cell.fill = style_stat_header_fill
+    cell.alignment = style_stat_header_alignment
+    cell = worksheet.cell(row=cell_row+2, column=cell_col+1, value=stat[2])
+    cell.number_format = style_stat_value_numformat
+    cell.font = style_stat_value_font
+    cell.fill = style_stat_value_fill
+    cell.alignment = style_stat_value_alignment
 
     #Grades --------------------------------------------------------------------------------------
     workbook.create_sheet(title="Grades")
