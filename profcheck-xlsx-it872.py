@@ -8,7 +8,7 @@ from openpyxl.utils import get_column_letter
 from colormath.color_objects import LabColor, sRGBColor
 from colormath.color_conversions import convert_color
 
-_module_date = datetime(2025, 10, 5)
+_module_date = datetime(2025, 10, 6)
 _module_designer = "Alexander Taluts"
 
 #Styles
@@ -40,27 +40,15 @@ dE_gradations = ((0.0, "0080FF"), (1.0, "00C000"), (2.0, "00FF00"), (3.0, "FFFF0
 
 #Class with all data about the patch
 class Patch():
-    def __init__(self, id, dE, error, actual, reference):
+    def __init__(self, id, dE, error, measured, reference):
         self.id = id                #patch id: string
         self.dE = dE                #delta E value: float
         self.error = error          #per channel error?: (float, float, float)
-        self.actual = actual        #actual color value (PCS): (float, float, float)
+        self.measured = measured    #measured color value (PCS): (float, float, float)
         self.reference = reference  #reference color value (PCS): (float, float, float)
 
-#Writes column numbers of the table
-def it872_header_col_num(worksheet, row):
-    for col in range(1, 25):
-        cell = worksheet.cell(row=row, column=col)
-        cell.fill = style_it872_header_fill
-        cell.font = style_it872_header_font
-        cell.alignment = style_it872_header_alignment
-        worksheet.column_dimensions[get_column_letter(col)].width = style_it872_cell_size[0]
-        worksheet.row_dimensions[row].height = style_it872_cell_size[1]
-        if 1 < col < 24:
-            cell.value = col - 1
-
 #Writes row letters of the table
-def it872_header_row_letter(worksheet, col):
+def it872_layout_row_letter(worksheet, col):
     for row in range(2, 14):
         cell = worksheet.cell(row=row, column=col)
         cell.fill = style_it872_header_fill
@@ -68,10 +56,69 @@ def it872_header_row_letter(worksheet, col):
         cell.alignment = style_it872_header_alignment
         cell.value = chr(row - 2 + ord('A'))
         worksheet.row_dimensions[row].height = style_it872_cell_size[1]
+
+#Writes column numbers of dE values table
+def it872de_layout_col_num(worksheet, row):
+    worksheet.row_dimensions[row].height = style_it872_cell_size[1]
+    for col in range(1, 25):
+        cell = worksheet.cell(row=row, column=col)
+        cell.fill = style_it872_header_fill
+        cell.font = style_it872_header_font
+        cell.alignment = style_it872_header_alignment
+        worksheet.column_dimensions[get_column_letter(col)].width = style_it872_cell_size[0]
+        if 1 < col < 24:
+            cell.value = col - 1
+
+#Writes column numbers of color comparison table
+def it872cmp_layout_col_num(worksheet, row):
+    worksheet.row_dimensions[row].height = style_it872_cell_size[1]
+    worksheet.column_dimensions[get_column_letter(1)].width = style_it872_cell_size[0]
+    cell = worksheet.cell(row=row, column=1)
+    cell.fill = style_it872_header_fill
+    cell.font = style_it872_header_font
+    cell.alignment = style_it872_header_alignment
+    for i in range(22):
+        col = i * 2 + 2
+        worksheet.merge_cells(start_row=row, start_column=col, end_row=row, end_column=col+1)
+        cell = worksheet.cell(row=row, column=col)
+        cell.fill = style_it872_header_fill
+        cell.font = style_it872_header_font
+        cell.alignment = style_it872_header_alignment
+        worksheet.column_dimensions[get_column_letter(col)].width = style_it872_cell_size[0] / 2
+        worksheet.column_dimensions[get_column_letter(col+1)].width = style_it872_cell_size[0] / 2
+        worksheet.row_dimensions[row].height = style_it872_cell_size[1]
+        cell.value = i + 1
+    worksheet.column_dimensions[get_column_letter(46)].width = style_it872_cell_size[0]
+    cell = worksheet.cell(row=row, column=46)
+    cell.fill = style_it872_header_fill
+    cell.font = style_it872_header_font
+    cell.alignment = style_it872_header_alignment
+
+#Writes the layout of dE values table
+def it872de_layout(worksheet):
+    it872de_layout_col_num(worksheet, 1)
+    it872de_layout_col_num(worksheet, 14)
+    it872_layout_row_letter(worksheet, 1)
+    it872_layout_row_letter(worksheet, 24)
     worksheet.row_dimensions[15].height = style_it872_cell_size[1] * 2
 
-#Converts patch id to cell address
-def patch_to_cell(id):
+#Writes the layout of color comparison table
+def it872cmp_layout(worksheet):
+    it872cmp_layout_col_num(worksheet, 1)
+    it872cmp_layout_col_num(worksheet, 14)
+    it872_layout_row_letter(worksheet, 1)
+    it872_layout_row_letter(worksheet, 46)
+    row = 15
+    worksheet.row_dimensions[row].height = style_it872_cell_size[1]
+    for col in range(2, 45, 2):
+        worksheet.merge_cells(start_row=row, start_column=col, end_row=row, end_column=col+1)
+    row += 1
+    worksheet.row_dimensions[row].height = style_it872_cell_size[1]
+    for col in range(2, 45, 2):
+        worksheet.merge_cells(start_row=row, start_column=col, end_row=row, end_column=col+1)
+
+#Converts patch id to cell address for dE values table
+def it872de_patch_to_cell(id):
     #split patch address into letter and number parts
     match = re.match(r"([A-Z]+)(\d+)", id, re.I)
     if match:
@@ -87,6 +134,28 @@ def patch_to_cell(id):
     else:
         cell_row = ord(patch_letter) - ord('A') + 2
         cell_col = patch_number + 1
+    return (cell_row, cell_col)
+
+#Converts patch id to cell address for color compare table
+def it872cmp_patch_to_cell(id, measured_color = False):
+    #split patch address into letter and number parts
+    match = re.match(r"([A-Z]+)(\d+)", id, re.I)
+    if match:
+        patch_letter, patch_number = match.groups()
+        patch_letter = patch_letter.upper()
+        patch_number = int(patch_number)
+    else:
+        raise ValueError(f"Wrong patch address: {id}")
+    #convert patch address to cell address
+    if patch_letter == "GS":
+        if measured_color: cell_row = 16
+        else: cell_row = 15
+        if patch_number == 0:  cell_col = 1
+        else: cell_col = patch_number * 2
+    else:
+        cell_row = ord(patch_letter) - ord('A') + 2
+        cell_col = patch_number * 2
+        if measured_color: cell_col += 1
     return (cell_row, cell_col)
 
 #Parses triplet values into tuple
@@ -110,8 +179,8 @@ def read_report(address):
         r"\[(?P<dE>[0-9.]+)\]\s+"
         r"(?P<patch_id>([A-Z]+)(\d+)):\s+"
         r"(?P<error>[0-9.eE+-]+\s+[0-9.eE+-]+\s+[0-9.eE+-]+)\s+->\s+"
-        r"(?P<color_act>[0-9.eE+-]+\s+[0-9.eE+-]+\s+[0-9.eE+-]+)\s+should be\s+"
-        r"(?P<color_ref>[0-9.eE+-]+\s+[0-9.eE+-]+\s+[0-9.eE+-]+)"
+        r"(?P<color_measured>[0-9.eE+-]+\s+[0-9.eE+-]+\s+[0-9.eE+-]+)\s+should be\s+"
+        r"(?P<color_reference>[0-9.eE+-]+\s+[0-9.eE+-]+\s+[0-9.eE+-]+)"
     )
     data = []
     with open(address, "r") as f:
@@ -128,9 +197,9 @@ def read_report(address):
             dE = float(m.group("dE"))
             patch_id = m.group("patch_id")
             error = parse_triplet(m.group("error"))
-            color_act = parse_triplet(m.group("color_act"))
-            color_ref = parse_triplet(m.group("color_ref"))
-            data.append(Patch(patch_id, dE, error, color_act, color_ref))
+            color_measured = parse_triplet(m.group("color_measured"))
+            color_reference = parse_triplet(m.group("color_reference"))
+            data.append(Patch(patch_id, dE, error, color_measured, color_reference))
     if len(data) > 0: return data, stat
     else: return None
 
@@ -151,19 +220,16 @@ def main():
     #create xlsx
     workbook = openpyxl.Workbook()
 
-    #IT8.7/2 table overlay ----------------------------------------------------------------------
+    #dE values sheet ----------------------------------------------------------------------
     worksheet = workbook.active
-    worksheet.title = "IT8.7-2"
+    worksheet.title = "dE values"
 
     #write table headers
-    it872_header_col_num(worksheet, 1)
-    it872_header_col_num(worksheet, 14)
-    it872_header_row_letter(worksheet, 1)
-    it872_header_row_letter(worksheet, 24)
+    it872de_layout(worksheet)
 
     #write patch data into table
     for patch in data:
-        cell_row, cell_col = patch_to_cell(patch.id)
+        cell_row, cell_col = it872de_patch_to_cell(patch.id)
         cell = worksheet.cell(row=cell_row, column=cell_col)
         cell.value = patch.dE
         cell.number_format = style_it872_value_numformat
@@ -220,9 +286,29 @@ def main():
     cell.fill = style_stat_value_fill
     cell.alignment = style_stat_value_alignment
 
+    #Patches color comparison sheet --------------------------------------------------------------------
+    workbook.create_sheet(title="Comparison")
+    worksheet = workbook.worksheets[1]
+
+    #write table headers
+    it872cmp_layout(worksheet)
+
+    #write patch colors into table
+    for patch in data:
+        cell_row, cell_col = it872cmp_patch_to_cell(patch.id, False)
+        cell = worksheet.cell(row=cell_row, column=cell_col)
+        fill_rgb = pcs_to_rgb(patch.reference)
+        fill_hex = "{:02X}{:02X}{:02X}".format(*fill_rgb)
+        cell.fill = PatternFill(start_color=fill_hex, end_color=fill_hex, fill_type="solid")
+        cell_row, cell_col = it872cmp_patch_to_cell(patch.id, True)
+        cell = worksheet.cell(row=cell_row, column=cell_col)
+        fill_rgb = pcs_to_rgb(patch.measured)
+        fill_hex = "{:02X}{:02X}{:02X}".format(*fill_rgb)
+        cell.fill = PatternFill(start_color=fill_hex, end_color=fill_hex, fill_type="solid")
+
     #Grades --------------------------------------------------------------------------------------
     workbook.create_sheet(title="Grades")
-    worksheet = workbook.worksheets[1]
+    worksheet = workbook.worksheets[2]
 
     #create addidtional dummy grade to ease condition check
     gradations = dE_gradations + ((375.0, "000000"), )
